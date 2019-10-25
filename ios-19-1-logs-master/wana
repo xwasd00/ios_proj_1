@@ -1,0 +1,212 @@
+#!/bin/sh
+POSIXLY_CORRECT=yes
+COMMAND="no"
+get_ip() {
+    CONTENT=$(echo "$CONTENT" | cut -d"-" -f1)
+}
+get_hosts() {
+    get_ip
+    if [ -n "$CONTENT" ]; then
+        CONTENT=$(echo "$CONTENT" | while read line; do
+            ip=$line
+            line=$(if ! host "$line" > /dev/null; then
+                    echo "$ip"
+                else
+                    host "$ip" | cut -d" " -f5 | sed -e 's/\.$//g' -;
+            fi;)
+            echo "$line"
+        done)
+    fi
+}
+my_print() {
+    if [ -n "$URI" ]; then
+        CONTENT=$(echo "$CONTENT" | grep "$URI")
+    fi
+    if [ -n "$IP" ]; then
+        CONTENT=$(echo "$CONTENT" | grep "$IP")
+    fi
+    if [ -n "$A_DT" ]; then
+        CONTENT=$(echo "$CONTENT" | while read line; do
+            MY_DATE=$(echo "$line" | cut -d"[" -f2 | cut -d"]" -f1 | cut -d" " -f1)
+            MY_DATE=$(echo "$MY_DATE" | sed -e 's/\// /g' | sed -e 's/:/ /')
+            MY_DATE=$(date --date="$MY_DATE" +'%Y%m%d%H%M%S')
+			if [ $? -ne 0 ]; then
+				exit 1
+			fi
+            if [ $MY_DATE -gt $A_DT ]; then
+                echo "$line"
+			fi
+        done)
+    fi
+    if [ -n "$B_DT" ]; then
+        CONTENT=$(echo "$CONTENT" | while read line; do
+            MY_DATE=$(echo "$line" | cut -d"[" -f2 | cut -d"]" -f1 | cut -d" " -f1)
+            MY_DATE=$(echo "$MY_DATE" | sed -e 's/\// /g' | sed -e 's/:/ /')
+            MY_DATE=$(date --date="$MY_DATE" +'%Y%m%d%H%M%S')
+			if [ $? -ne 0 ]; then
+                exit 1
+            fi
+            if [ $MY_DATE -lt $B_DT ]; then
+                echo "$line"
+            fi
+        done)
+    fi
+    case "$COMMAND" in
+        "list-ip")
+            get_ip
+            ;;
+        "list-hosts")
+            get_hosts
+            ;;
+        "list-uri")
+            CONTENT=$(echo "$CONTENT" | cut -d'"' -f2 | awk '{if($2 != ""){print $2}}')
+            ;;
+        "hist-ip")
+            get_ip
+            ;;
+        "hist-load")
+			if [ "\n" != "$CONTENT" ]; then
+	            CONTENT=$(echo "$CONTENT" | while read line; do
+					MY_DATE=$(echo "$line" | cut -d"[" -f2 | cut -d"]" -f1 | cut -d" " -f1)
+					if [ "$MY_DATE" != "" ]; then
+        	    		MY_DATE=$(echo "$MY_DATE" | sed -e 's/\// /g' | sed -e 's/:/ /')
+            	    	MY_DATE=$(date --date="$MY_DATE" +'%Y-%m-%d %H:00')
+                		if [ $? -ne 0 ]; then
+                    		exit 1;
+	                	fi
+    	            	echo "$MY_DATE"
+					fi
+        	    done)
+			fi
+			;;
+        *)
+            ;;
+    esac
+    if [ -n "$PRINT_LOGS" ]; then
+        PRINT_LOGS=$(echo "$PRINT_LOGS";echo "$CONTENT" | cat)
+    else
+        PRINT_LOGS=$(echo "$CONTENT")
+    fi
+}
+
+
+
+
+while [ $# -ne 0 ]; do
+	arg=$1
+	count=$#
+	while [ $count -ne 1 ]; do
+		arg2=$(eval echo "\$$count")
+		if [ "$arg2" = "$arg" ];then
+			echo "Dva argumenty jsou stejne."
+			exit 1
+		else
+			count=$(expr $count - 1)
+		fi
+	done
+	if [ $COMMAND = "no" ]; then
+        case "$arg" in
+            "list-ip")
+                COMMAND="list-ip"
+				shift
+                continue
+                ;;
+            "list-hosts")
+                COMMAND="list-hosts"
+				shift
+                continue
+                ;;
+            "list-uri")
+                COMMAND="list-uri"
+				shift
+                continue
+                ;;
+            "hist-ip")
+                COMMAND="hist-ip"
+				shift
+                continue
+                ;;
+            "hist-load")
+                COMMAND="hist-load"
+				shift
+                continue
+                ;;
+            "-a")
+		if [ $# -eq 1 ]; then echo "spatne zadany filtr -a YYYY-MM-DD HH:MM:SS"; exit 1; fi
+				shift
+                A_DT="$1"
+				A_DT=$(date --date="$A_DT" +'%Y%m%d%H%M%S')
+				if [ $? -ne 0 ]; then exit 1;fi
+                ;;
+            "-b")
+		if [ $# -eq 1 ]; then echo "spatne zadany filtr -b YYYY-MM-DD HH:MM:SS"; exit 1; fi
+		shift
+                B_DT="$1"
+				B_DT=$(date --date="$B_DT" +'%Y%m%d%H%M%S')
+				if [ $? -ne 0 ]; then exit 1; fi
+                ;;
+	    "-ip")
+		if [ $# -eq 1 ]; then echo "spatne zadany filtr -ip IP"; exit 1; fi
+		shift
+                IP="$1"
+                ;;
+            "-uri")
+		if [ $# -eq 1 ]; then echo "spatne zadany filtr -uri URI"; exit 1; fi
+		shift
+                URI="$1"
+                ;;
+            *)
+                COMMAND="unset"
+                ;;
+        esac
+    fi
+    if [ $COMMAND != "no" ]; then
+        FILES=`echo $FILES $arg`
+    fi
+    shift
+done
+if [ -z "$FILES" ]; then
+    CONTENT=$(tee)
+    my_print
+else
+    for i in $FILES; do
+        case "$i" in
+            *".gz")
+                CONTENT=$(gunzip -qc "$i")
+                if [ $? -ne 0 ]; then
+                    exit 1;
+                fi
+                ;;
+            *)
+                CONTENT=$(cat "$i")
+                if [ $? -ne 0 ]; then
+                    exit 1;
+                fi
+                ;;
+        esac;
+        my_print
+    done
+fi
+case "$COMMAND" in
+    "hist-ip")
+        PRINT_LOGS=$(echo "$PRINT_LOGS" | sort | uniq -c | sort -r)
+        echo "$PRINT_LOGS" | awk '{printf "%s (%d): ", $2, $1;
+            x=0
+            while(x < $1){
+                printf "#"; x++
+            }
+            printf "\n"}'
+        ;;
+	"hist-load")
+		PRINT_LOGS=$(echo "$PRINT_LOGS" | sort | uniq -c)
+        echo "$PRINT_LOGS" | awk '{printf "%s %s (%d): ", $2, $3, $1;
+            x=0
+            while(x < $1){
+                printf "#"; x++
+            }
+            printf "\n"}'
+		;;
+    *)
+        echo "$PRINT_LOGS" | sort | uniq
+        ;;
+esac
