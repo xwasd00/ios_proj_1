@@ -1,4 +1,10 @@
 #!/bin/sh
+
+#author: Michal Sova <xsovam00>
+#created: March 2019
+#project to IOS
+
+
 POSIXLY_CORRECT=yes
 COMMAND="no"
 get_ip() {
